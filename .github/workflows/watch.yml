@@ -2,9 +2,16 @@ name: isrotel-watch
 
 on:
   schedule:
-    # שעות ישראל (UTC+3 בקיץ): ~09:00, 12:00, 15:00, 18:00, 21:00
-    - cron: "0 6,9,12,15,18 * * *"
-  workflow_dispatch: {}   # מאפשר הרצה ידנית מ-GitHub
+    # שעות ישראל (UTC+3 בקיץ): 09:00, 12:00, 15:00, 18:00 — ריצות רגילות
+    - cron: "0 6,9,12,15 * * *"
+    # 21:00 ישראל — ריצה אחרונה + סיכום יומי (heartbeat)
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+    inputs:
+      daily_summary:
+        description: "שלח גם סיכום יומי (לבדיקה ידנית)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write          # כדי לשמור את state.json בחזרה לריפו
@@ -22,6 +29,8 @@ jobs:
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID:   ${{ secrets.TG_CHAT_ID }}
+          # סיכום יומי רץ בתזמון 18:00 UTC (21:00 ישראל), או בבקשה ידנית
+          DAILY_SUMMARY: ${{ github.event.schedule == '0 18 * * *' || github.event.inputs.daily_summary == 'true' }}
         run: python isrotel_watch.py
       - name: Persist state
         run: |

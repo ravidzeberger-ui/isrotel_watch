@@ -57,8 +57,16 @@ def load_env():
             k, v = line.split("=", 1)
             os.environ.setdefault(k.strip(), v.strip())
 
+def now_israel():
+    """שעון ישראל — כי שרת ה-GitHub רץ ב-UTC"""
+    try:
+        from zoneinfo import ZoneInfo
+        return dt.datetime.now(ZoneInfo("Asia/Jerusalem"))
+    except Exception:
+        return dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=3)
+
 def log(msg):
-    ts = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ts = now_israel().strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{ts}] {msg}"
     print(line)
     with open(LOG_FILE, "a", encoding="utf-8") as f:
@@ -141,8 +149,12 @@ def matches(d):
 # --------------------------- מצב (dedup) ---------------------------
 def load_state():
     if os.path.exists(STATE_FILE):
-        return json.load(open(STATE_FILE, encoding="utf-8"))
-    return {"alerted": {}}
+        st = json.load(open(STATE_FILE, encoding="utf-8"))
+    else:
+        st = {}
+    st.setdefault("alerted", {})    # saleid -> זמן התראה (שעון ישראל)
+    st.setdefault("last_runs", [])  # זמני ריצה אחרונים (heartbeat)
+    return st
 
 def save_state(state):
     json.dump(state, open(STATE_FILE, "w", encoding="utf-8"),
@@ -176,9 +188,29 @@ def format_alert(d, reason):
         f"🔗 {URL}"
     )
 
+def format_daily_summary(scanned, runs_today, n_alerts):
+    times = ", ".join(t[11:16] for t in sorted(runs_today))   # HH:MM שעון ישראל
+    n = len(runs_today)
+    runs_line = (f"הריצות רצו תקין. היום בוצעה ריצה אחת ({times})." if n == 1
+                 else f"הריצות רצו תקין. היום בוצעו {n} ריצות ({times}).")
+    if n_alerts == 1:
+        deals_line = "🔔 נמצא היום דיל סופ\"ש מתאים אחד — קיבלת עליו התראה."
+    elif n_alerts:
+        deals_line = f"🔔 נמצאו היום {n_alerts} דילי סופ\"ש מתאימים — קיבלת התראה על כל אחד."
+    else:
+        deals_line = "😴 לא נמצא היום אף דיל סופ\"ש שמתאים לקריטריונים שלך."
+    return "\n".join([
+        "✅ <b>סיכום יומי — isrotel_watch</b>",
+        runs_line,
+        f"נסרקו {scanned} דילים בעמוד דקה 90.",
+        deals_line,
+    ])
+
 # --------------------------- main ---------------------------
 def main():
     dry = "--dry-run" in sys.argv
+    summary_mode = ("--daily-summary" in sys.argv
+                    or os.environ.get("DAILY_SUMMARY", "").lower() == "true")
     load_env()
 
     if "--test-telegram" in sys.argv:
@@ -186,31 +218,41 @@ def main():
         log("בדיקת טלגרם: " + ("הצליחה ✅" if ok else "נכשלה ❌"))
         return
 
+    now_iso = now_israel().isoformat(timespec="seconds")
+    today = now_iso[:10]
     state = load_state()
     deals = fetch_deals()
-    log(f"נמשכו {len(deals)} דילים מהעמוד" + (" [DRY-RUN]" if dry else ""))
+    log(f"נמשכו {len(deals)} דילים מהעמוד" + (" [DRY-RUN]" if dry else "")
+        + (" [SUMMARY]" if summary_mode else ""))
 
-    new_hits = []
-    for d in deals:
-        ok, reason = matches(d)
-        if not ok:
-            continue
-        if d["saleid"] in state["alerted"]:
-            continue                      # כבר התרענו על הדיל הזה
-        new_hits.append((d, reason))
-
-    if not new_hits:
-        log("אין דילי סופ\"ש חדשים מתחת לסף. שקט.")
-        return
-
-    for d, reason in new_hits:
-        text = format_alert(d, reason)
-        if dry:
-            log("היה נשלח:\n" + text)
-        else:
-            if send_telegram(text):
+    # --- התראות על דילים חדשים שמתאימים ---
+    new_hits = [(d, r) for d in deals
+                for ok, r in [matches(d)]
+                if ok and d["saleid"] not in state["alerted"]]
+    if new_hits:
+        for d, reason in new_hits:
+            text = format_alert(d, reason)
+            if dry:
+                log("היה נשלח:\n" + text)
+            elif send_telegram(text):
                 log(f"נשלחה התראה: {d['name']} ({d['saleid']})")
-                state["alerted"][d["saleid"]] = dt.datetime.now().isoformat(timespec="seconds")
+                state["alerted"][d["saleid"]] = now_iso
+    else:
+        log("אין דילי סופ\"ש חדשים מתחת לסף. שקט.")
+
+    # --- רישום heartbeat (סימן חיים לכל ריצה) ---
+    state["last_runs"] = (state["last_runs"] + [now_iso])[-40:]
+
+    # --- סיכום יומי בריצה האחרונה (גם אם לא נמצא כלום) ---
+    if summary_mode:
+        runs_today = [t for t in state["last_runs"] if t[:10] == today]
+        alerts_today = sum(1 for t in state["alerted"].values() if t[:10] == today)
+        text = format_daily_summary(len(deals), runs_today, alerts_today)
+        if dry:
+            log("סיכום יומי שהיה נשלח:\n" + text)
+        elif send_telegram(text):
+            log("נשלח סיכום יומי")
+
     if not dry:
         save_state(state)
 
