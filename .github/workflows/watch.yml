@@ -1,0 +1,32 @@
+name: isrotel-watch
+
+on:
+  schedule:
+    # שעות ישראל (UTC+3 בקיץ): ~09:00, 12:00, 15:00, 18:00, 21:00
+    - cron: "0 6,9,12,15,18 * * *"
+  workflow_dispatch: {}   # מאפשר הרצה ידנית מ-GitHub
+
+permissions:
+  contents: write          # כדי לשמור את state.json בחזרה לריפו
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Run watcher
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID:   ${{ secrets.TG_CHAT_ID }}
+        run: python isrotel_watch.py
+      - name: Persist state
+        run: |
+          git config user.name  "isrotel-watch-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add state.json
+          git commit -m "update state [skip ci]" || echo "no changes"
+          git push || echo "nothing to push"

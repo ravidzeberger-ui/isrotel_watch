@@ -1,0 +1,6 @@
+.env
+run.log
+__pycache__/
+*.pyc
+*.html
+# state.json מכוון להיכלל בריפו כדי לשמור dedup בין ריצות ב-GitHub Actions
