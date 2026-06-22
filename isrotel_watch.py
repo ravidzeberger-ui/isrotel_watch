@@ -27,6 +27,8 @@ WEEKEND_NIGHTS = {3, 4}        # weekday(): חמישי=3, שישי=4  → סופ
 EILAT_LOC_CODES = {"17005"}    # קוד מיקום של אילת (לגונה/ספורט קלאב)
 EILAT_NAME_HINTS = ["לגונה", "ספורט קלאב", "קינג סולומון", "אגמים",
                     "ים סוף", "ריביירה", "רויאל גארדן", "רויאל ביץ' אילת"]
+EXCLUDE_HOTEL_CODES = {"AL"}        # מלונות לא רלוונטיים (AL=אלברטו)
+EXCLUDE_HOTEL_NAMES = ["אלברטו"]
 
 HERE       = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(HERE, "state.json")
@@ -124,6 +126,8 @@ def weekend_nights_covered(d):
     return out
 
 def matches(d):
+    if d["hotel"] in EXCLUDE_HOTEL_CODES or any(n in d["name"] for n in EXCLUDE_HOTEL_NAMES):
+        return False, "מלון מוחרג"
     if is_eilat(d):
         return False, "אילת"
     wn = weekend_nights_covered(d)
