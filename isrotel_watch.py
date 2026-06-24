@@ -123,28 +123,28 @@ def is_eilat(d):
         return True
     return any(h in d["name"] for h in EILAT_NAME_HINTS)
 
-def weekend_nights_covered(d):
-    """אילו לילות-סופ"ש (חמישי/שישי) הדיל מכסה"""
-    out = []
+def weekend_pair_covered(d):
+    """האם הדיל מכסה ליל-חמישי + ליל-שישי רצופים (שהייה חמישי→שבת, 2 לילות אמיתיים)?
+    מחזיר (חמישי, שישי) אם כן, אחרת None. דיל של לילה-בודד נדחה."""
     day = d["checkin"]
-    while day < d["checkout"]:
-        if day.weekday() in WEEKEND_NIGHTS:
-            out.append(day)
+    # day+1 חייב להיות עדיין בתוך השהייה (checkout לא-כולל) → מבטיח שגם ליל-שישי נכלל
+    while day + dt.timedelta(days=1) < d["checkout"]:
+        if day.weekday() == 3 and (day + dt.timedelta(days=1)).weekday() == 4:
+            return day, day + dt.timedelta(days=1)
         day += dt.timedelta(days=1)
-    return out
+    return None
 
 def matches(d):
     if d["hotel"] in EXCLUDE_HOTEL_CODES or any(n in d["name"] for n in EXCLUDE_HOTEL_NAMES):
         return False, "מלון מוחרג"
     if is_eilat(d):
         return False, "אילת"
-    wn = weekend_nights_covered(d)
-    if not wn:
-        return False, "לא סופ\"ש"
-    est_total = d["per_night"] * 2          # אומדן 2 לילות
+    if not weekend_pair_covered(d):
+        return False, "אין שהייה של 2 לילות סופ\"ש (חמישי+שישי)"
+    est_total = d["per_night"] * 2          # אומדן 2 לילות-הסופ"ש (החל-מ-X ללילה)
     if d["per_night"] > PER_NIGHT_MAX or est_total > WEEKEND_TOTAL_MAX:
         return False, f"יקר ({est_total:,}₪ ל-2 לילות)"
-    return True, f"~{est_total:,}₪ לסופ\"ש"
+    return True, f"~{est_total:,}₪ ל-2 לילות (חמישי–שבת)"
 
 # --------------------------- מצב (dedup) ---------------------------
 def load_state():
